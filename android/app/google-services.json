@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "422056351881",
+    "project_id": "bygrace-428cc",
+    "storage_bucket": "bygrace-428cc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:422056351881:android:2266660d0155199ca38e58",
+        "android_client_info": {
+          "package_name": "com.example.grace_by"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCcX1syWbqrDYZS9r6yfVRO1tZRC9moamc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
