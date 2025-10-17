@@ -24,6 +24,8 @@ class NoticesPage extends StatelessWidget {
             foregroundColor: Colors.white,
             title: const Text('Notices'),
             centerTitle: true,
+            floating: true,
+            snap: true,
             pinned: false,
             surfaceTintColor: Colors.transparent,
             elevation: 6.0,

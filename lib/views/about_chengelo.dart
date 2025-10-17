@@ -144,27 +144,30 @@ class AboutChengelo extends StatelessWidget {
                     ],
                   ),
                 ),
+              ],
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
                 Text(
                   'chengelo',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 25),
+                  style: Theme.of(context).textTheme.labelLarge,
                 ),
-
-                // 3. Subtitle/Motto
-                Text(
-                  '"as a witness to the light"', // Simplified string literal
+                const Text(
+                  '"as a witness to the light"',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color:
-                        CupertinoColors.systemYellow, // Using Cupertino color
+                  style: TextStyle(
+                    color: CupertinoColors.systemYellow,
                     fontSize: 14,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
-                SizedBox(height: AppDimensions.exsized),
               ],
             ),
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 25)),
         ],
       ),
     );

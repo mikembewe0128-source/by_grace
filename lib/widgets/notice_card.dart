@@ -39,14 +39,14 @@ class NoticeCard extends StatelessWidget {
                 Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ) ??
-                const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           ),
           const Text(
             '"as a witness to the light"',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: CupertinoColors.systemYellow,
-              fontSize: 14,
+              fontSize: 11,
               fontStyle: FontStyle.italic,
             ),
           ),

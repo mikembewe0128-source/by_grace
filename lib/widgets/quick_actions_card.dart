@@ -50,7 +50,7 @@ class QuickActionsCard extends StatelessWidget {
               QuickActionRow(
                 iconAsset: 'assets/event.png',
                 label: 'Events',
-                destination: Events(),
+                destination: EventsPage(),
               ),
 
               QuickActionRow(

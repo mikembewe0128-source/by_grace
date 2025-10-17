@@ -47,7 +47,7 @@ class _HomePageState extends State<HomePage> {
           // 1️⃣ Header
           SliverAppBar(
             backgroundColor: const Color(0xFF000428),
-            collapsedHeight: 80,
+            collapsedHeight: 70,
             pinned: true,
             elevation: 6.0,
             scrolledUnderElevation: 6.0,
