@@ -3,7 +3,7 @@ import 'package:grace_by/widgets/quick_action_row.dart';
 import 'package:grace_by/views/about_chengelo.dart';
 import 'package:grace_by/views/events.dart';
 import 'package:grace_by/views/notices.dart';
-import 'package:grace_by/views/school_calender.dart';
+import 'package:grace_by/views/school_programme_page.dart';
 import 'package:grace_by/views/weekend.dart';
 
 class QuickActionsCard extends StatelessWidget {
@@ -45,7 +45,7 @@ class QuickActionsCard extends StatelessWidget {
               QuickActionRow(
                 iconAsset: 'assets/school.png',
                 label: 'school Calendar',
-                destination: SchoolCalender(),
+                destination: SchoolProgrammesPage(),
               ),
               QuickActionRow(
                 iconAsset: 'assets/event.png',

@@ -19,45 +19,22 @@ class AboutChengelo extends StatelessWidget {
       backgroundColor: AppColors.exbackground,
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            automaticallyImplyLeading: false,
+          SliverAppBar.medium(
+            backgroundColor: AppColors.exblue,
+            foregroundColor: Colors.white,
+            title: const Text('chengelo'),
+            centerTitle: true,
+            floating: true,
+            snap: true,
+            pinned: false,
+            surfaceTintColor: Colors.transparent,
+            elevation: 6.0,
+            scrolledUnderElevation: 6.0,
             leading: IconButton(
               onPressed: () {
                 Navigator.pop(context);
               },
-              icon: Icon(Icons.arrow_back_ios, color: AppColors.exbackground),
-            ),
-            backgroundColor: const Color(0xFF000428),
-            pinned: true,
-            elevation: 6.0,
-            scrolledUnderElevation: 6.0,
-            surfaceTintColor: Colors.transparent,
-            expandedHeight: expandedHeight,
-            title: Text(
-              'Chengelo',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(color: Colors.white),
-            ),
-            centerTitle: true,
-            flexibleSpace: FlexibleSpaceBar(
-              title: null,
-              background: DecoratedBox(
-                decoration: const BoxDecoration(color: Color(0xFF000428)),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 100.0),
-                  child: Center(
-                    child: FractionallySizedBox(
-                      widthFactor: isLandscape ? 0.4 : 0.8,
-                      heightFactor: isLandscape ? 0.6 : 0.8,
-                      child: Image.asset(
-                        'assets/iconnzz.png',
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              icon: const Icon(Icons.arrow_back_ios),
             ),
           ),
           SliverToBoxAdapter(
