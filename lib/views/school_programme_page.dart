@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+// Note: You must ensure 'grace_by/data/app_colors.dart', 'grace_by/models/programmes.dart',
+// and 'grace_by/widgets/programme_card.dart' exist and are correct in your project.
 import 'package:grace_by/data/app_colors.dart';
 import 'package:grace_by/models/programmes.dart';
 import 'package:grace_by/widgets/programme_card.dart';
@@ -33,7 +34,8 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   late DateTime _focusedDay;
   late DateTime _selectedDay;
 
-  late SharedPreferences _prefs;
+  // FIX 1: Changed 'late SharedPreferences _prefs;' to be nullable (SharedPreferences?).
+  SharedPreferences? _prefs;
   Map<DateTime, List<String>> _programmesByDate = {}; // Cached/Live markers
 
   @override
@@ -44,12 +46,13 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 💾 PREFERENCES & CACHE SETUP (Same as before)
+  // 💾 PREFERENCES & CACHE SETUP
   // ----------------------------------------------------------------------
   Future<void> _initializePreferencesAndCache() async {
     _prefs = await SharedPreferences.getInstance();
 
-    final savedDayString = _prefs.getString(_kSelectedDayKey);
+    // Use non-null assertion (!) because _prefs is guaranteed to be set here.
+    final savedDayString = _prefs!.getString(_kSelectedDayKey);
     if (savedDayString != null) {
       try {
         _selectedDay = DateTime.parse(savedDayString);
@@ -71,7 +74,8 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
 
   Future<void> _saveSelectedDay(DateTime day) async {
     if (mounted) {
-      await _prefs.setString(_kSelectedDayKey, day.toIso8601String());
+      // Use null-aware operator (?.): safe if called before _prefs is initialized.
+      await _prefs?.setString(_kSelectedDayKey, day.toIso8601String());
     }
   }
 
@@ -81,16 +85,19 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
         (key, value) => MapEntry(key.toIso8601String(), value),
       );
       final jsonString = json.encode(encodedMap);
-      await _prefs.setString(_kProgrammesMapKey, jsonString);
+      // Use null-aware operator (?.): safe if called before _prefs is initialized.
+      await _prefs?.setString(_kProgrammesMapKey, jsonString);
     }
   }
 
   Map<DateTime, List<String>> _loadProgrammesMap() {
-    final jsonString = _prefs.getString(_kProgrammesMapKey);
+    // Use null-aware operator (?.): safe when retrieving from prefs.
+    final jsonString = _prefs?.getString(_kProgrammesMapKey);
     if (jsonString == null) return {};
 
     try {
-      final decodedMap = json.decode(jsonString) as Map<String, dynamic>;
+      // Use non-null assertion (!) here since jsonString was just checked for null.
+      final decodedMap = json.decode(jsonString!) as Map<String, dynamic>;
       return decodedMap.map(
         (key, value) =>
             MapEntry(DateTime.parse(key), (value as List).cast<String>()),
@@ -118,9 +125,25 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
         .snapshots();
   }
 
+  // ----------------------------------------------------------------------
+  // 🛠️ HANDLER FOR STREAM DATA
+  // ----------------------------------------------------------------------
+
+  // This handles the data processing and calls setState/saves preferences.
+  void _handleProgrammeData(List<Programme> allProgrammes) {
+    if (!mounted) return;
+
+    // _buildProgrammeMap contains setState() but is now called asynchronously.
+    _buildProgrammeMap(allProgrammes);
+
+    // Save the updated map. This is safe to call here.
+    _saveProgrammesMap(_programmesByDate);
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (!mounted || !(_prefs is SharedPreferences)) {
+    // FIX 1 APPLIED: Safe check for preference initialization. Prevents LateInitializationError.
+    if (!mounted || _prefs == null) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('School Programmes'),
@@ -132,7 +155,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     }
 
     return Scaffold(
-      // NOTE: appBar is now null because SliverAppBar is used in the body
+      backgroundColor: AppColors.exbackground,
       body: StreamBuilder<QuerySnapshot>(
         stream: _allProgrammesStream(),
         builder: (context, snapshot) {
@@ -155,9 +178,11 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
                 .map((doc) => Programme.fromFirestore(doc))
                 .toList();
 
-            // Build and Cache the new marker map (Seamless Update)
-            _buildProgrammeMap(allProgrammes);
-            _saveProgrammesMap(_programmesByDate);
+            // FIX 2 APPLIED: Call the state-modifying function using
+            // a post-frame callback. This prevents the "setState() during build" error.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _handleProgrammeData(allProgrammes);
+            });
           }
 
           // 3. Build the UI using CustomScrollView and Slivers
@@ -206,7 +231,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🛠️ MAP BUILDER & EQUALITY (Same as before)
+  // 🛠️ MAP BUILDER & EQUALITY
   // ----------------------------------------------------------------------
 
   void _buildProgrammeMap(List<Programme> allProgrammes) {
@@ -247,7 +272,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 📅 CALENDAR WIDGET (Same as before)
+  // 📅 CALENDAR WIDGET
   // ----------------------------------------------------------------------
 
   Widget _buildCalendar() {
@@ -393,7 +418,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 💡 SELECTED DATE HEADER (Same as before)
+  // 💡 SELECTED DATE HEADER
   // ----------------------------------------------------------------------
 
   Widget _buildSelectedDateHeader() {
@@ -413,7 +438,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 📝 PROGRAMME LIST (Now returns a SliverList)
+  // 📝 PROGRAMME LIST
   // ----------------------------------------------------------------------
 
   Widget _buildProgrammeListSliver(List<Programme> allProgrammes) {

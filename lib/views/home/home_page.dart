@@ -1,8 +1,7 @@
-// home_page.dart
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:grace_by/Api/firestore_service.dart';
 import 'package:grace_by/data/app_colors.dart';
 import 'package:grace_by/models/announcements.dart';
@@ -48,7 +47,6 @@ class _HomePageState extends State<HomePage> {
           SliverAppBar(
             backgroundColor: const Color(0xFF000428),
             collapsedHeight: 70,
-
             elevation: 6.0,
             scrolledUnderElevation: 6.0,
             surfaceTintColor: Colors.transparent,
@@ -134,18 +132,23 @@ class _HomePageState extends State<HomePage> {
                 );
               }
 
+              // ✨ Animate DevotionCard on scroll
               return SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 600),
-                    switchInCurve: Curves.easeInOut,
-                    switchOutCurve: Curves.easeOut,
-                    child: DevotionCard(
-                      key: ValueKey(devotion.date.toIso8601String()),
-                      devotion: devotion,
-                    ),
-                  ),
+                  child:
+                      DevotionCard(
+                            key: ValueKey(devotion.date.toIso8601String()),
+                            devotion: devotion,
+                          )
+                          .animate()
+                          .fadeIn(duration: 600.ms)
+                          .slideY(begin: 0.2, end: 0, curve: Curves.easeOut)
+                          .then()
+                          .animate(
+                            onPlay: (controller) =>
+                                controller.forward(from: 0.0),
+                          ),
                 ),
               );
             },
@@ -187,14 +190,18 @@ class _HomePageState extends State<HomePage> {
                   }
 
                   final staff = snapshot.data ?? defaultStaff;
-                  return AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 600),
-                    switchInCurve: Curves.easeInOut,
-                    child: StaffOnDutyCard(
-                      key: ValueKey(staff.hashCode),
-                      staff: staff,
-                    ),
-                  );
+                  // ✨ Animate StaffOnDutyCard on scroll
+                  return StaffOnDutyCard(
+                        key: ValueKey(staff.hashCode),
+                        staff: staff,
+                      )
+                      .animate()
+                      .fadeIn(duration: 600.ms)
+                      .slideY(begin: 0.15, end: 0, curve: Curves.easeOut)
+                      .then()
+                      .animate(
+                        onPlay: (controller) => controller.forward(from: 0.0),
+                      );
                 },
               ),
             ),
@@ -253,129 +260,141 @@ class _HomePageState extends State<HomePage> {
                   return DateFormat('MMM dd, yyyy h:mm a').format(dateTime);
                 }
 
-                return AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 600),
-                  switchInCurve: Curves.easeInOut,
-                  child: SizedBox(
-                    key: ValueKey(announcements.hashCode),
-                    height: cardHeight,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: announcements.length,
-                      itemBuilder: (context, index) {
-                        final announcement = announcements[index];
+                return SizedBox(
+                  height: cardHeight,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: announcements.length,
+                    itemBuilder: (context, index) {
+                      final announcement = announcements[index];
 
-                        return Container(
-                          width: cardWidth,
-                          margin: EdgeInsets.only(
-                            left: index == 0 ? 12 : 6,
-                            right: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.exblue,
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: const [
-                              BoxShadow(
-                                blurRadius: 8,
-                                color: Colors.black26,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Stack(
-                            children: [
-                              // Background
-                              if (announcement.imageUrl.isNotEmpty)
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: CachedNetworkImage(
-                                    imageUrl: announcement.imageUrl,
-                                    width: cardWidth,
-                                    height: cardHeight,
-                                    fit: BoxFit.cover,
-                                    fadeInDuration: const Duration(
-                                      milliseconds: 500,
-                                    ),
-                                    fadeOutDuration: const Duration(
-                                      milliseconds: 200,
-                                    ),
-                                    errorWidget: (context, url, error) =>
-                                        Image.asset(
-                                          'assets/images/ethos.jpg',
-                                          fit: BoxFit.cover,
-                                        ),
-                                    placeholder: (context, url) =>
-                                        const ShimmerPlaceholder(
-                                          height: double.infinity,
-                                          width: double.infinity,
-                                          borderRadius: 10,
-                                        ),
+                      final card = Container(
+                        width: cardWidth,
+                        margin: EdgeInsets.only(
+                          left: index == 0 ? 12 : 6,
+                          right: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.exblue,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: const [
+                            BoxShadow(
+                              blurRadius: 8,
+                              color: Colors.black26,
+                              offset: Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            // Background
+                            if (announcement.imageUrl.isNotEmpty)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: CachedNetworkImage(
+                                  imageUrl: announcement.imageUrl,
+                                  width: cardWidth,
+                                  height: cardHeight,
+                                  fit: BoxFit.cover,
+                                  fadeInDuration: const Duration(
+                                    milliseconds: 500,
                                   ),
-                                )
-                              else
-                                Container(
-                                  decoration: BoxDecoration(
-                                    color: AppColors.exblue,
-                                    borderRadius: BorderRadius.circular(10),
+                                  fadeOutDuration: const Duration(
+                                    milliseconds: 200,
                                   ),
+                                  errorWidget: (context, url, error) =>
+                                      Image.asset(
+                                        'assets/images/ethos.jpg',
+                                        fit: BoxFit.cover,
+                                      ),
+                                  placeholder: (context, url) =>
+                                      const ShimmerPlaceholder(
+                                        height: double.infinity,
+                                        width: double.infinity,
+                                        borderRadius: 10,
+                                      ),
                                 ),
-
-                              // Overlay
+                              )
+                            else
                               Container(
                                 decoration: BoxDecoration(
-                                  color: announcement.imageUrl.isNotEmpty
-                                      ? Colors.black.withOpacity(0.4)
-                                      : Colors.transparent,
+                                  color: AppColors.exblue,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                               ),
 
-                              // Centered content
-                              Align(
-                                alignment: Alignment.center,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12.0),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        announcement.title,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
+                            // Overlay
+                            Container(
+                              decoration: BoxDecoration(
+                                color: announcement.imageUrl.isNotEmpty
+                                    ? Colors.black.withOpacity(0.4)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+
+                            // Centered content
+                            Align(
+                              alignment: Alignment.center,
+                              child: Padding(
+                                padding: const EdgeInsets.all(12.0),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      announcement.title,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
                                       ),
-                                      if (announcement.content.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 8.0,
-                                          ),
-                                          child: Text(
-                                            announcement.content,
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 12,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                            maxLines: 4,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (announcement.content.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: 8.0,
                                         ),
-                                    ],
-                                  ),
+                                        child: Text(
+                                          announcement.content,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                          maxLines: 4,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
+                            ),
 
-                              // Timestamp
+                            // Timestamp
+                            Positioned(
+                              top: 12.0,
+                              left: 12.0,
+                              child: Text(
+                                formatTimestamp(announcement.date),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+
+                            // Sender
+                            if (announcement.sender != null &&
+                                announcement.sender!.isNotEmpty)
                               Positioned(
-                                top: 12.0,
+                                bottom: 12.0,
                                 left: 12.0,
                                 child: Text(
-                                  formatTimestamp(announcement.date),
+                                  'From: ${announcement.sender}',
                                   style: const TextStyle(
                                     color: Colors.white70,
                                     fontSize: 10,
@@ -383,27 +402,25 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                               ),
+                          ],
+                        ),
+                      );
 
-                              // Sender
-                              if (announcement.sender != null &&
-                                  announcement.sender.isNotEmpty)
-                                Positioned(
-                                  bottom: 12.0,
-                                  left: 12.0,
-                                  child: Text(
-                                    'From: ${announcement.sender}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                      // ✨ Animate each announcement card
+                      return card
+                          .animate()
+                          .fadeIn(duration: 400.ms, delay: (100 * index).ms)
+                          .slideX(
+                            begin: 0.2 * (index % 2 == 0 ? 1 : -1),
+                            end: 0,
+                            curve: Curves.easeOut,
+                          )
+                          .then()
+                          .animate(
+                            onPlay: (controller) =>
+                                controller.forward(from: 0.0),
+                          );
+                    },
                   ),
                 );
               },
@@ -421,10 +438,24 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           SliverToBoxAdapter(
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
-              child: QuickActionsCard(),
-            ),
+            child:
+                const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12.0,
+                        vertical: 10.0,
+                      ),
+                      child: QuickActionsCard(),
+                    )
+                    .animate()
+                    .fadeIn(duration: 600.ms, delay: 200.ms)
+                    .scale(
+                      begin: const Offset(0.95, 0.95),
+                      end: const Offset(1.0, 1.0),
+                    )
+                    .then()
+                    .animate(
+                      onPlay: (controller) => controller.forward(from: 0.0),
+                    ),
           ),
 
           // 6️⃣ Footer
