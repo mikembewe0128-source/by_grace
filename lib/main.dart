@@ -11,7 +11,9 @@ import 'package:grace_by/data/constants.dart';
 import 'package:grace_by/firebase_options.dart';
 import 'package:grace_by/Api/auth_screens.dart';
 import 'package:grace_by/views/home/home_page.dart';
+import 'package:grace_by/onboarding/onboarding_view.dart'; // 👈 Add this import
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ==========================================================
 // ROUTES
@@ -42,21 +44,34 @@ Future<void> main() async {
   // 3️⃣ Configure FirebaseUI Auth Providers
   FirebaseUIAuth.configureProviders([EmailAuthProvider()]);
 
-  // 4️⃣ Determine initial route based on authentication state
-  final User? currentUser = FirebaseAuth.instance.currentUser;
-  final String initialRouteName = currentUser != null
-      ? Constants.homeRoute
-      : Constants.signInRoute;
+  // 4️⃣ Initialize SharedPreferences
+  final prefs = await SharedPreferences.getInstance();
+  final bool seenOnboarding = prefs.getBool('onboarding') ?? false;
 
-  // 5️⃣ Instantiate FirestoreService (starts caching listener)
+  // 5️⃣ Determine which screen to start on
+  final User? currentUser = FirebaseAuth.instance.currentUser;
+  String initialRoute;
+
+  if (!seenOnboarding) {
+    // 👋 Show onboarding first
+    initialRoute = '/onboarding';
+  } else if (currentUser != null) {
+    // 🔐 User already signed in
+    initialRoute = Constants.homeRoute;
+  } else {
+    // 🧍 User not signed in yet
+    initialRoute = Constants.signInRoute;
+  }
+
+  // 6️⃣ Instantiate FirestoreService
   final firestoreService = FirestoreService();
 
-  // 6️⃣ Run the app wrapped in Provider
+  // 7️⃣ Run app
   runApp(
     Provider<FirestoreService>(
       create: (_) => firestoreService,
-      dispose: (_, service) => service.dispose(), // Proper cleanup
-      child: MyApp(initialRoute: initialRouteName),
+      dispose: (_, service) => service.dispose(),
+      child: MyApp(initialRoute: initialRoute),
     ),
   );
 }
@@ -73,7 +88,10 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       initialRoute: initialRoute,
-      routes: routes,
+      routes: {
+        ...routes,
+        '/onboarding': (context) => const OnboardingView(), // 👈 Add route
+      },
       theme: ThemeData(
         textTheme: const TextTheme(
           titleLarge: TextStyle(
