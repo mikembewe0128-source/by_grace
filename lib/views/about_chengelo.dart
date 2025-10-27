@@ -2,23 +2,129 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:grace_by/data/app_colors.dart';
 import 'package:grace_by/data/app_dimensions.dart';
+import 'package:url_launcher/url_launcher.dart'; // <-- 1. Import url_launcher
 
-class AboutChengelo extends StatelessWidget {
+// Assume these imports exist and are correct
+// import 'package:grace_by/data/app_colors.dart';
+// import 'package:grace_by/data/app_dimensions.dart';
+class AboutChengelo extends StatefulWidget {
   const AboutChengelo({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final Size screenSize = MediaQuery.of(context).size;
-    final bool isLandscape = screenSize.width > screenSize.height;
+  State<AboutChengelo> createState() => _AboutChengeloState();
+}
 
-    // Responsive AppBar height calculation (Simplified for cleaner code)
-    final double expandedHeight = screenSize.width * 0.6 > 200
-        ? screenSize.width * 0.6
-        : 200;
+class _AboutChengeloState extends State<AboutChengelo> {
+  // ==========================================================
+  // 1. URL Constants
+  // ==========================================================
+
+  // URL for the main website (Opens in a browser)
+  static const String SCHOOL_WEBSITE_URL = 'https://www.chengeloschool.org';
+
+  // URL for the iCalendar feed (Attempts to open in a calendar app)
+  static const String SCHOOL_CALENDAR_URL =
+      'https://calendar.google.com/calendar/ical/admin%40chengeloschool.org/private-665b5078be27b752d6949a828d4496af/basic.ics';
+
+  // ==========================================================
+  // 2. Launch Functions with Improved Error Logging
+  // ==========================================================
+
+  // Function to launch the main website
+  Future<void> _launchWebsiteUrl() async {
+    final Uri url = Uri.parse(SCHOOL_WEBSITE_URL);
+
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.platformDefault)) {
+        // Fallback or explicit failure reporting
+        _showLaunchError(SCHOOL_WEBSITE_URL, 'The browser failed to open.');
+      }
+    } catch (e) {
+      _showLaunchError(SCHOOL_WEBSITE_URL, 'An unexpected error occurred: $e');
+    }
+  }
+
+  // Function to launch the calendar feed
+  Future<void> _launchCalendarUrl() async {
+    final Uri url = Uri.parse(SCHOOL_CALENDAR_URL);
+
+    try {
+      // 1. Attempt to open in a native calendar app (externalApplication)
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        // 2. If native app fails, fall back to opening in a web browser
+        if (!await launchUrl(url, mode: LaunchMode.platformDefault)) {
+          // 3. If both fail, show error
+          _showLaunchError(
+            SCHOOL_CALENDAR_URL,
+            'Failed to launch in both calendar app and browser.',
+          );
+        }
+      }
+    } catch (e) {
+      _showLaunchError(SCHOOL_CALENDAR_URL, 'An unexpected error occurred: $e');
+    }
+  }
+
+  // ==========================================================
+  // 3. Error Reporting Method (using SnackBar)
+  // ==========================================================
+
+  void _showLaunchError(String url, String message) {
+    // Print to console for debugging
+    print('LAUNCH ERROR for $url: $message');
+
+    // Display a user-friendly error message using a SnackBar
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error: Could not open the link. $message'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  Widget _buildLinkRow(
+    BuildContext context,
+    String title,
+    VoidCallback onTapHandler,
+  ) {
+    return GestureDetector(
+      onTap: onTapHandler,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize:
+              MainAxisSize.min, // Ensures the Row only takes up space needed
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                fontWeight: FontWeight.bold,
+                color: AppColors.exblue, // Style it like a link
+                decoration: TextDecoration.underline,
+              ),
+            ),
+            const SizedBox(width: 8.0), // Space between text and icon
+            // Arrow Icon
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: AppColors.exblue,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.exbackground,
       body: CustomScrollView(
         slivers: [
+          // 1. SliverAppBar (Correct)
           SliverAppBar.medium(
             backgroundColor: AppColors.exblue,
             foregroundColor: Colors.white,
@@ -37,18 +143,43 @@ class AboutChengelo extends StatelessWidget {
               icon: const Icon(Icons.arrow_back_ios),
             ),
           ),
+
+          // 2. Main Content
           SliverToBoxAdapter(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
                 // Top Spacer
                 SizedBox(height: AppDimensions.exsized),
+
+                // Calendar Title/Subtitle Block (Updated to use helper)
+                Column(
+                  children: [
+                    // Website Link
+                    _buildLinkRow(
+                      context,
+                      'Visit Our Website',
+                      _launchWebsiteUrl, // <-- Linked to the website function
+                    ),
+
+                    const SizedBox(height: 10), // Spacing between links
+                    // Calendar Link
+                    _buildLinkRow(
+                      context,
+                      'School Calendar',
+                      _launchCalendarUrl, // <-- Linked to the calendar function
+                    ),
+                  ],
+                ),
+
+                // Use a regular SizedBox for spacing here, NOT SliverToBoxAdapter
+                const SizedBox(height: 25),
 
                 // Image
                 Padding(
                   padding: const EdgeInsets.all(10.0),
                   child: ClipRRect(
-                    borderRadius: BorderRadiusGeometry.circular(15),
+                    borderRadius: BorderRadius.circular(15),
                     child: Image.asset('assets/about.jpg'),
                   ),
                 ),
@@ -86,6 +217,7 @@ class AboutChengelo extends StatelessWidget {
                         style: const TextStyle(fontSize: 14, height: 1.5),
                       ),
                       SizedBox(height: AppDimensions.exsized),
+
                       // Paragraph 3
                       Text(
                         textAlign: TextAlign.justify,
@@ -101,6 +233,7 @@ class AboutChengelo extends StatelessWidget {
                         style: const TextStyle(fontSize: 14, height: 1.5),
                       ),
                       SizedBox(height: AppDimensions.exsized),
+
                       // Paragraph 5
                       Text(
                         textAlign: TextAlign.justify,
@@ -124,6 +257,8 @@ class AboutChengelo extends StatelessWidget {
               ],
             ),
           ),
+
+          // 3. Footer Content
           SliverToBoxAdapter(
             child: Column(
               children: [
@@ -144,6 +279,8 @@ class AboutChengelo extends StatelessWidget {
               ],
             ),
           ),
+
+          // 4. Final Spacer
           const SliverToBoxAdapter(child: SizedBox(height: 25)),
         ],
       ),

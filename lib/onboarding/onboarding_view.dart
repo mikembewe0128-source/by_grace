@@ -151,7 +151,7 @@ class _OnboardingViewState extends State<OnboardingView> {
                   child: Text(
                     item.description,
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.exbackground,
                       fontSize: 15 * textScaleFactor,
                     ), // 👈 CHANGED
                     textAlign: TextAlign.center,

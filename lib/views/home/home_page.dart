@@ -360,7 +360,7 @@ class _HomePageState extends State<HomePage> {
                                         child: Text(
                                           announcement.content,
                                           style: const TextStyle(
-                                            color: Colors.white,
+                                            color: AppColors.exbackground,
                                             fontSize: 12,
                                           ),
                                           textAlign: TextAlign.center,

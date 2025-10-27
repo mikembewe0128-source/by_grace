@@ -1,14 +1,14 @@
 import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-// Note: You must ensure 'grace_by/data/app_colors.dart', 'grace_by/models/programmes.dart',
-// and 'grace_by/widgets/programme_card.dart' exist and are correct in your project.
 import 'package:grace_by/data/app_colors.dart';
 import 'package:grace_by/models/programmes.dart';
 import 'package:grace_by/widgets/programme_card.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 // Helper function to check if two DateTime objects represent the same day
 bool isSameDay(DateTime? a, DateTime? b) {
@@ -22,6 +22,12 @@ bool isSameDay(DateTime? a, DateTime? b) {
 const String _kSelectedDayKey = 'lastSelectedDay';
 const String _kProgrammesMapKey = 'programmesMapCache';
 
+// ----------------------------------------------------------------------
+// 🔗 GOOGLE CALENDAR URL
+// ----------------------------------------------------------------------
+const String _kGoogleCalendarIcsUrl =
+    'https://calendar.google.com/calendar/ical/admin%40chengeloschool.org/private-665b5078be27b752d6949a828d4496af/basic.ics';
+
 class SchoolProgrammesPage extends StatefulWidget {
   const SchoolProgrammesPage({super.key});
 
@@ -34,9 +40,11 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   late DateTime _focusedDay;
   late DateTime _selectedDay;
 
-  // FIX 1: Changed 'late SharedPreferences _prefs;' to be nullable (SharedPreferences?).
   SharedPreferences? _prefs;
   Map<DateTime, List<String>> _programmesByDate = {}; // Cached/Live markers
+
+  // State variable for the full combined list (Firestore + Google)
+  List<Programme> _combinedProgrammes = [];
 
   @override
   void initState() {
@@ -51,7 +59,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   Future<void> _initializePreferencesAndCache() async {
     _prefs = await SharedPreferences.getInstance();
 
-    // Use non-null assertion (!) because _prefs is guaranteed to be set here.
     final savedDayString = _prefs!.getString(_kSelectedDayKey);
     if (savedDayString != null) {
       try {
@@ -74,7 +81,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
 
   Future<void> _saveSelectedDay(DateTime day) async {
     if (mounted) {
-      // Use null-aware operator (?.): safe if called before _prefs is initialized.
       await _prefs?.setString(_kSelectedDayKey, day.toIso8601String());
     }
   }
@@ -85,18 +91,15 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
         (key, value) => MapEntry(key.toIso8601String(), value),
       );
       final jsonString = json.encode(encodedMap);
-      // Use null-aware operator (?.): safe if called before _prefs is initialized.
       await _prefs?.setString(_kProgrammesMapKey, jsonString);
     }
   }
 
   Map<DateTime, List<String>> _loadProgrammesMap() {
-    // Use null-aware operator (?.): safe when retrieving from prefs.
     final jsonString = _prefs?.getString(_kProgrammesMapKey);
     if (jsonString == null) return {};
 
     try {
-      // Use non-null assertion (!) here since jsonString was just checked for null.
       final decodedMap = json.decode(jsonString!) as Map<String, dynamic>;
       return decodedMap.map(
         (key, value) =>
@@ -109,9 +112,151 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🔄 FIREBASE STREAM (Single Source of Truth)
+  // 🌐 GOOGLE CALENDAR LOGIC (WITH DEBUGGING AND DATE FIX)
+  // ----------------------------------------------------------------------
+
+  Future<List<Programme>> _fetchAndParseGoogleCalendarEvents() async {
+    try {
+      print('>>> ICS DEBUG: Attempting to fetch Google Calendar ICS...');
+      final response = await http.get(Uri.parse(_kGoogleCalendarIcsUrl));
+
+      if (response.statusCode == 200) {
+        print(
+          '>>> ICS DEBUG: ✅ ICS fetch successful. Body size: ${response.bodyBytes.length} bytes.',
+        );
+        if (response.bodyBytes.length < 100) {
+          print(
+            '>>> ICS DEBUG: WARNING: Body size is very small. Calendar might be empty or URL is wrong.',
+          );
+        }
+        return _parseIcsContent(response.body);
+      } else {
+        print(
+          '>>> ICS DEBUG: ❌ Failed to load Google Calendar ICS. Status Code: ${response.statusCode}',
+        );
+        return [];
+      }
+    } catch (e) {
+      print('>>> ICS DEBUG: 🚨 Error fetching Google Calendar: $e');
+      return [];
+    }
+  }
+
+  // Helper to parse ICS date/time strings (FIXED for VALUE=DATE)
+  DateTime? _parseIcsDateTime(String line) {
+    try {
+      // 1. Find the actual value after the last colon, ignoring parameters like TZID=...
+      String rawValue = line.substring(line.lastIndexOf(':') + 1).trim();
+
+      // 2. Check for date-only flag (YYYYMMDD format)
+      if (line.contains('VALUE=DATE')) {
+        // CRITICAL FIX: Manually format the YYYYMMDD string to YYYY-MM-DD
+        // for native DateTime.parse() compatibility, avoiding the intl FormatException.
+        return DateTime.parse(
+          '${rawValue.substring(0, 4)}-${rawValue.substring(4, 6)}-${rawValue.substring(6, 8)}',
+        );
+      } else {
+        // Date-time format (e.g., YYYYMMDDTHHMMSSZ or YYYYMMDDTHHMMSS)
+        String cleanValue = rawValue.replaceAll(RegExp(r'[^\dTZ]'), '');
+        String format;
+        DateTime parsedDate;
+
+        if (cleanValue.endsWith('Z')) {
+          // Z means UTC
+          format = "yyyyMMdd'T'HHmmss'Z'";
+          // Parse UTC and convert to local time zone
+          parsedDate = DateFormat(format).parseUTC(cleanValue).toLocal();
+        } else if (cleanValue.contains('T')) {
+          // Non-UTC (Local Time based on TZID or implied context)
+          format = "yyyyMMdd'T'HHmmss";
+          parsedDate = DateFormat(format).parse(cleanValue);
+        } else {
+          // Fallback for unexpected format
+          return null;
+        }
+        return parsedDate;
+      }
+    } catch (e) {
+      print('>>> ICS DEBUG: 🚨 Date parse error for line: $line. Error: $e');
+      return null;
+    }
+  }
+
+  // Simplified ICS Parser (UPDATED)
+  List<Programme> _parseIcsContent(String icsContent) {
+    final List<Programme> events = [];
+    final lines = icsContent.split('\n');
+
+    String? currentSummary;
+    DateTime? currentStart;
+    DateTime? currentEnd;
+    String? currentUid;
+    bool isDateOnly = false; // Flag to track if the event is all-day
+
+    for (final line in lines) {
+      final trimmedLine = line.trim();
+
+      if (trimmedLine.startsWith('BEGIN:VEVENT')) {
+        currentSummary = null;
+        currentStart = null;
+        currentEnd = null;
+        currentUid = null;
+        isDateOnly = false;
+      } else if (trimmedLine.startsWith('SUMMARY:')) {
+        currentSummary = trimmedLine.substring('SUMMARY:'.length).trim();
+      } else if (trimmedLine.startsWith('DTSTART')) {
+        currentStart = _parseIcsDateTime(trimmedLine);
+        if (trimmedLine.contains('VALUE=DATE')) {
+          isDateOnly = true;
+        }
+      } else if (trimmedLine.startsWith('DTEND')) {
+        currentEnd = _parseIcsDateTime(trimmedLine);
+      } else if (trimmedLine.startsWith('UID:')) {
+        currentUid = trimmedLine.substring('UID:'.length).trim();
+      } else if (trimmedLine.startsWith('END:VEVENT')) {
+        if (currentSummary != null && currentStart != null) {
+          DateTime? finalEnd = currentEnd;
+
+          if (isDateOnly) {
+            // All-day event correction:
+            if (finalEnd != null && finalEnd.isAfter(currentStart)) {
+              // DTEND is exclusive (day *after* the event ends). Subtract 1 day.
+              finalEnd = finalEnd.subtract(const Duration(days: 1));
+            } else if (finalEnd == null) {
+              // Single-day all-day event (DTEND omitted)
+              finalEnd = currentStart;
+            }
+          }
+
+          // Final sanity check: If end is before start, set end to start (for single-day events)
+          if (finalEnd != null && finalEnd.isBefore(currentStart)) {
+            finalEnd = currentStart;
+          }
+
+          events.add(
+            Programme(
+              id: currentUid ?? 'gc-${UniqueKey().toString()}',
+              title: currentSummary!,
+              start: currentStart!,
+              end: finalEnd,
+              isFromGoogleCalendar: true,
+              visible: true,
+            ),
+          );
+        }
+      }
+    }
+    print(
+      '>>> ICS DEBUG: Successfully parsed ${events.length} Google Calendar events.',
+    );
+    return events;
+  }
+
+  // ----------------------------------------------------------------------
+  // 🔄 FIREBASE STREAM
   // ----------------------------------------------------------------------
   Stream<QuerySnapshot> _allProgrammesStream() {
+    // This stream only handles Firestore data
     return FirebaseFirestore.instance
         .collection('programmes')
         .where('visible', isEqualTo: true)
@@ -129,20 +274,102 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   // 🛠️ HANDLER FOR STREAM DATA
   // ----------------------------------------------------------------------
 
-  // This handles the data processing and calls setState/saves preferences.
-  void _handleProgrammeData(List<Programme> allProgrammes) {
+  // This handles the data processing, merging, and calls setState/saves preferences.
+  void _handleProgrammeData(List<Programme> firestoreProgrammes) async {
     if (!mounted) return;
 
-    // _buildProgrammeMap contains setState() but is now called asynchronously.
+    // 1. Fetch Google Calendar Events
+    final googleProgrammes = await _fetchAndParseGoogleCalendarEvents();
+
+    // 2. Merge and sort all programmes
+    final allProgrammes = [...firestoreProgrammes, ...googleProgrammes];
+    allProgrammes.sort((a, b) => a.start.compareTo(b.start));
+
+    // 3. Build the map for the calendar markers
     _buildProgrammeMap(allProgrammes);
 
-    // Save the updated map. This is safe to call here.
+    // 4. Update the combined list state
+    if (!listEquals(_combinedProgrammes, allProgrammes)) {
+      setState(() {
+        _combinedProgrammes = allProgrammes; // 👈 NEW
+      });
+    }
+
+    // 5. Save the updated map.
     _saveProgrammesMap(_programmesByDate);
   }
 
+  // New helper function to check list equality for Programmes
+  bool listEquals(List<Programme> a, List<Programme> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id ||
+          a[i].isFromGoogleCalendar != b[i].isFromGoogleCalendar) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // ----------------------------------------------------------------------
+  // 🛠️ MAP BUILDER & EQUALITY
+  // ----------------------------------------------------------------------
+
+  // Modified to take the combined list
+  void _buildProgrammeMap(List<Programme> allProgrammes) {
+    final Map<DateTime, List<String>> grouped = {};
+    for (final programme in allProgrammes) {
+      final start = programme.start;
+      final end = programme.end ?? start;
+
+      // Normalize start to the beginning of the day
+      final startDay = DateTime(start.year, start.month, start.day);
+
+      // Determine the last day the programme is active (inclusive).
+      final lastActiveDay = DateTime(end.year, end.month, end.day);
+
+      // Determine the exclusive end day for the loop
+      final exclusiveEndDay = lastActiveDay.add(const Duration(days: 1));
+
+      DateTime current = startDay; // Start from the beginning of the start day
+
+      while (current.isBefore(exclusiveEndDay)) {
+        // Loop until the day *before* the exclusive end day
+        final normalizedDate = DateTime(
+          current.year,
+          current.month,
+          current.day,
+        );
+        grouped.putIfAbsent(normalizedDate, () => []);
+        grouped[normalizedDate]!.add(programme.title);
+        current = current.add(const Duration(days: 1));
+      }
+    }
+    if (!mapEquals(grouped, _programmesByDate)) {
+      setState(() {
+        _programmesByDate = grouped;
+      });
+    }
+  }
+
+  bool mapEquals(Map<DateTime, List<String>> a, Map<DateTime, List<String>> b) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) ||
+          a[key]!.length != b[key]!.length ||
+          a[key].toString() != b[key].toString()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // ----------------------------------------------------------------------
+  // 🖼️ WIDGET BUILDER
+  // ----------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    // FIX 1 APPLIED: Safe check for preference initialization. Prevents LateInitializationError.
     if (!mounted || _prefs == null) {
       return Scaffold(
         appBar: AppBar(
@@ -171,21 +398,27 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
             );
           }
 
-          List<Programme> allProgrammes = [];
+          List<Programme> firestoreProgrammes = [];
 
           if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-            allProgrammes = snapshot.data!.docs
+            firestoreProgrammes = snapshot.data!.docs
                 .map((doc) => Programme.fromFirestore(doc))
                 .toList();
 
-            // FIX 2 APPLIED: Call the state-modifying function using
-            // a post-frame callback. This prevents the "setState() during build" error.
+            // Call the state-modifying function to fetch/merge Google data
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              _handleProgrammeData(allProgrammes);
+              _handleProgrammeData(firestoreProgrammes);
             });
+          } else {
+            // Handle case where stream data is empty but we may have Google data/cache
+            if (_combinedProgrammes.isEmpty) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _handleProgrammeData([]);
+              });
+            }
           }
 
-          // 3. Build the UI using CustomScrollView and Slivers
+          // Build the UI using CustomScrollView and Slivers
           return CustomScrollView(
             slivers: [
               // 🟢 MEDIUM SliverAppBar
@@ -221,54 +454,13 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
                 ),
               ),
 
-              // 4. Programme List (Now a SliverList)
-              _buildProgrammeListSliver(allProgrammes),
+              // 4. Programme List (Now a SliverList) - Uses the combined list from state
+              _buildProgrammeListSliver(_combinedProgrammes),
             ],
           );
         },
       ),
     );
-  }
-
-  // ----------------------------------------------------------------------
-  // 🛠️ MAP BUILDER & EQUALITY
-  // ----------------------------------------------------------------------
-
-  void _buildProgrammeMap(List<Programme> allProgrammes) {
-    final Map<DateTime, List<String>> grouped = {};
-    for (final programme in allProgrammes) {
-      final start = programme.start;
-      final end = programme.end ?? start;
-      DateTime current = DateTime(start.year, start.month, start.day);
-      final endDate = DateTime(end.year, end.month, end.day);
-      while (!current.isAfter(endDate)) {
-        final normalizedDate = DateTime(
-          current.year,
-          current.month,
-          current.day,
-        );
-        grouped.putIfAbsent(normalizedDate, () => []);
-        grouped[normalizedDate]!.add(programme.title);
-        current = current.add(const Duration(days: 1));
-      }
-    }
-    if (!mapEquals(grouped, _programmesByDate)) {
-      setState(() {
-        _programmesByDate = grouped;
-      });
-    }
-  }
-
-  bool mapEquals(Map<DateTime, List<String>> a, Map<DateTime, List<String>> b) {
-    if (a.length != b.length) return false;
-    for (final key in a.keys) {
-      if (!b.containsKey(key) ||
-          a[key]!.length != b[key]!.length ||
-          a[key].toString() != b[key].toString()) {
-        return false;
-      }
-    }
-    return true;
   }
 
   // ----------------------------------------------------------------------
@@ -279,7 +471,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: TableCalendar(
-        // ... (Calendar properties and styles remain the same)
         firstDay: DateTime.utc(DateTime.now().year - 1),
         lastDay: DateTime.utc(DateTime.now().year + 1),
         focusedDay: _focusedDay,
@@ -418,7 +609,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 💡 SELECTED DATE HEADER
+  // 💡 SELECTED DATE HEADER (No change required)
   // ----------------------------------------------------------------------
 
   Widget _buildSelectedDateHeader() {
@@ -438,17 +629,30 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 📝 PROGRAMME LIST
+  // 📝 PROGRAMME LIST (CORRECTED FILTER)
   // ----------------------------------------------------------------------
 
   Widget _buildProgrammeListSliver(List<Programme> allProgrammes) {
     final selected = _selectedDay;
+    // Start of the selected day (e.g., 2025-10-27 00:00:00.000)
     final startOfDay = DateTime(selected.year, selected.month, selected.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
+    // End of the selected day (exclusive) (e.g., 2025-10-28 00:00:00.000)
+    final endOfDayExclusive = startOfDay.add(const Duration(days: 1));
 
+    // Filter programmes that overlap with the selected day
     final programmesForDay = allProgrammes.where((p) {
-      final programmeEnd = p.end ?? p.start;
-      return !(programmeEnd.isBefore(startOfDay) || p.start.isAfter(endOfDay));
+      final programmeEndInclusive = p.end ?? p.start;
+
+      // An event overlaps with the selected day if:
+      // 1. The event starts BEFORE the exclusive end of the selected day.
+      final startsBeforeEndOfSelectedDay = p.start.isBefore(endOfDayExclusive);
+
+      // 2. The event ends ON OR AFTER the start of the selected day.
+      final endsAfterStartOfSelectedDay =
+          programmeEndInclusive.isAfter(startOfDay) ||
+          isSameDay(programmeEndInclusive, startOfDay);
+
+      return startsBeforeEndOfSelectedDay && endsAfterStartOfSelectedDay;
     }).toList();
 
     if (programmesForDay.isEmpty) {
@@ -486,13 +690,12 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
       itemCount: programmesForDay.length,
       itemBuilder: (context, index) {
         final programme = programmesForDay[index];
-        // Note: We keep the AnimatedSwitcher, as it works inside a SliverList's itemBuilder
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 400),
           transitionBuilder: (child, animation) =>
               FadeTransition(opacity: animation, child: child),
           child: ProgrammeCard(
-            key: ValueKey(programme.id),
+            key: ValueKey('${programme.id}-${programme.isFromGoogleCalendar}'),
             programme: programme,
             selectedDay: selected,
           ),

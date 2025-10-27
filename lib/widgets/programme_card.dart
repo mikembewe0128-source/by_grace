@@ -122,7 +122,7 @@ class ProgrammeCard extends StatelessWidget {
                       child: Text(
                         'Happening Now', // Changed text for better clarity
                         style: TextStyle(
-                          color: Colors.red.shade700,
+                          color: Colors.green,
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                         ),
