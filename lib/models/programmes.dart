@@ -1,3 +1,5 @@
+// File: models/programmes.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Programme {
@@ -9,8 +11,6 @@ class Programme {
   final String? location;
   final String? imageUrl;
   final bool visible;
-
-  /// 👇 Flag to identify Google Calendar events
   final bool isFromGoogleCalendar;
 
   Programme({
@@ -48,22 +48,25 @@ class Programme {
     );
   }
 
-  /// JSON constructor (for caching)
+  /// JSON constructor (for loading from cache)
   factory Programme.fromJson(Map<String, dynamic> json) {
     return Programme(
-      id: json['id'] ?? '',
-      title: json['title'] ?? 'Untitled',
-      description: json['description'],
-      start: DateTime.tryParse(json['start'] ?? '') ?? DateTime.now(),
-      end: json['end'] != null ? DateTime.tryParse(json['end']) : null,
-      location: json['location'],
-      imageUrl: json['imageUrl'],
-      visible: json['visible'] ?? true,
-      isFromGoogleCalendar: json['isFromGoogleCalendar'] ?? false,
+      id: json['id'] as String? ?? 'cached-id',
+      title: json['title'] as String? ?? 'Untitled',
+      description: json['description'] as String?,
+      start:
+          DateTime.tryParse(json['start'] as String? ?? '') ?? DateTime.now(),
+      end: (json['end'] != null)
+          ? DateTime.tryParse(json['end'] as String)
+          : null,
+      location: json['location'] as String?,
+      imageUrl: json['imageUrl'] as String?,
+      visible: json['visible'] as bool? ?? true,
+      isFromGoogleCalendar: json['isFromGoogleCalendar'] as bool? ?? false,
     );
   }
 
-  /// Convert to JSON (for caching)
+  /// Convert to JSON (for saving to cache)
   Map<String, dynamic> toJson() {
     return {
       'id': id,

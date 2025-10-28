@@ -1,5 +1,6 @@
-import 'dart:convert';
+// File: school_programmes_page.dart
 
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:grace_by/data/app_colors.dart';
@@ -21,6 +22,8 @@ bool isSameDay(DateTime? a, DateTime? b) {
 // ----------------------------------------------------------------------
 const String _kSelectedDayKey = 'lastSelectedDay';
 const String _kProgrammesMapKey = 'programmesMapCache';
+const String _kGoogleProgrammesCacheKey =
+    'googleProgrammesListCache'; // NEW KEY
 
 // ----------------------------------------------------------------------
 // 🔗 GOOGLE CALENDAR URL
@@ -41,10 +44,12 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   late DateTime _selectedDay;
 
   SharedPreferences? _prefs;
-  Map<DateTime, List<String>> _programmesByDate = {}; // Cached/Live markers
-
-  // State variable for the full combined list (Firestore + Google)
+  Map<DateTime, List<String>> _programmesByDate = {};
   List<Programme> _combinedProgrammes = [];
+
+  // 👇 NEW: Variables for throttling network requests
+  DateTime? _lastGoogleFetchTime;
+  static const Duration _fetchThrottleDuration = Duration(minutes: 5);
 
   @override
   void initState() {
@@ -69,11 +74,18 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
       }
     }
 
+    // Load Programme Map (for markers)
     final cachedMap = _loadProgrammesMap();
     if (cachedMap.isNotEmpty) {
-      setState(() {
-        _programmesByDate = cachedMap;
-      });
+      _programmesByDate = cachedMap;
+    }
+
+    // Load Google Programme List (for daily event display)
+    final cachedGoogleProgrammes = _loadGoogleProgrammesCache();
+    if (cachedGoogleProgrammes.isNotEmpty) {
+      // Use cached data for initial display (fast launch)
+      _combinedProgrammes = cachedGoogleProgrammes;
+      _buildProgrammeMap(_combinedProgrammes, shouldSetState: false);
     }
 
     setState(() {});
@@ -100,7 +112,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     if (jsonString == null) return {};
 
     try {
-      final decodedMap = json.decode(jsonString!) as Map<String, dynamic>;
+      final decodedMap = json.decode(jsonString) as Map<String, dynamic>;
       return decodedMap.map(
         (key, value) =>
             MapEntry(DateTime.parse(key), (value as List).cast<String>()),
@@ -111,78 +123,135 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     }
   }
 
+  // Save the full list of Google Programmes
+  Future<void> _saveGoogleProgrammesCache(List<Programme> programmes) async {
+    if (mounted) {
+      try {
+        final List<Map<String, dynamic>> jsonList = programmes
+            .map((p) => p.toJson())
+            .toList();
+        final jsonString = json.encode(jsonList);
+        await _prefs?.setString(_kGoogleProgrammesCacheKey, jsonString);
+      } catch (e) {
+        print('>>> CACHE: Error saving Google programmes to cache: $e');
+      }
+    }
+  }
+
+  // Load the full list of Google Programmes
+  List<Programme> _loadGoogleProgrammesCache() {
+    final jsonString = _prefs?.getString(_kGoogleProgrammesCacheKey);
+    if (jsonString == null || jsonString.isEmpty) return [];
+
+    try {
+      final List<dynamic> decodedList = json.decode(jsonString);
+      return decodedList
+          .map((json) => Programme.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      print(">>> CACHE: Error loading cached Google programmes: $e");
+      return [];
+    }
+  }
+
   // ----------------------------------------------------------------------
-  // 🌐 GOOGLE CALENDAR LOGIC (WITH DEBUGGING AND DATE FIX)
+  // 🌐 CORRECTED: GOOGLE CALENDAR LOGIC (WITH THROTTLE AND CACHE)
   // ----------------------------------------------------------------------
 
   Future<List<Programme>> _fetchAndParseGoogleCalendarEvents() async {
+    // --- 1. THROTTLE CHECK (Performance Optimization) ---
+    if (_lastGoogleFetchTime != null &&
+        DateTime.now().difference(_lastGoogleFetchTime!) <
+            _fetchThrottleDuration) {
+      print(
+        '>>> ICS DEBUG: ⏱️ Throttle active. Returning cached data immediately.',
+      );
+      return _loadGoogleProgrammesCache();
+    }
+
+    // --- 2. NETWORK FETCH ---
     try {
       print('>>> ICS DEBUG: Attempting to fetch Google Calendar ICS...');
       final response = await http.get(Uri.parse(_kGoogleCalendarIcsUrl));
 
       if (response.statusCode == 200) {
-        print(
-          '>>> ICS DEBUG: ✅ ICS fetch successful. Body size: ${response.bodyBytes.length} bytes.',
-        );
-        if (response.bodyBytes.length < 100) {
-          print(
-            '>>> ICS DEBUG: WARNING: Body size is very small. Calendar might be empty or URL is wrong.',
-          );
-        }
-        return _parseIcsContent(response.body);
+        print('>>> ICS DEBUG: ✅ ICS fetch successful. Parsing...');
+
+        final liveEvents = _parseIcsContent(response.body);
+
+        // 💾 SUCCESS: SAVE TO CACHE AND UPDATE TIMESTAMP
+        await _saveGoogleProgrammesCache(liveEvents);
+        _lastGoogleFetchTime =
+            DateTime.now(); // Record the successful fetch time
+
+        return liveEvents;
       } else {
         print(
           '>>> ICS DEBUG: ❌ Failed to load Google Calendar ICS. Status Code: ${response.statusCode}',
         );
-        return [];
+
+        // 🔍 CACHE FALLBACK: Load from cache on network failure
+        final cachedEvents = _loadGoogleProgrammesCache();
+        print(
+          '>>> ICS DEBUG: 🔄 Falling back to cache. Found ${cachedEvents.length} events.',
+        );
+        return cachedEvents;
       }
     } catch (e) {
-      print('>>> ICS DEBUG: 🚨 Error fetching Google Calendar: $e');
-      return [];
+      print(
+        '>>> ICS DEBUG: 🚨 Error fetching Google Calendar (Network/Parser Error): $e',
+      );
+
+      // 🔍 CACHE FALLBACK: Load from cache on exception
+      final cachedEvents = _loadGoogleProgrammesCache();
+      print(
+        '>>> ICS DEBUG: 🔄 Falling back to cache. Found ${cachedEvents.length} events.',
+      );
+      return cachedEvents;
     }
   }
 
-  // Helper to parse ICS date/time strings (FIXED for VALUE=DATE)
+  // ----------------------------------------------------------------------
+  // 🛠️ CORRECTED: ICS DATE PARSER (Fixes FormatException)
+  // ----------------------------------------------------------------------
   DateTime? _parseIcsDateTime(String line) {
     try {
-      // 1. Find the actual value after the last colon, ignoring parameters like TZID=...
       String rawValue = line.substring(line.lastIndexOf(':') + 1).trim();
+      String cleanValue = rawValue.replaceAll(RegExp(r'[^\dTZ]'), '');
 
-      // 2. Check for date-only flag (YYYYMMDD format)
-      if (line.contains('VALUE=DATE')) {
-        // CRITICAL FIX: Manually format the YYYYMMDD string to YYYY-MM-DD
-        // for native DateTime.parse() compatibility, avoiding the intl FormatException.
+      // Case 1: All-day event (Format: YYYYMMDD)
+      if (line.contains('VALUE=DATE') && cleanValue.length == 8) {
+        // Manual formatting to YYYY-MM-DD for native parsing
         return DateTime.parse(
-          '${rawValue.substring(0, 4)}-${rawValue.substring(4, 6)}-${rawValue.substring(6, 8)}',
+          '${cleanValue.substring(0, 4)}-${cleanValue.substring(4, 6)}-${cleanValue.substring(6, 8)}',
         );
-      } else {
-        // Date-time format (e.g., YYYYMMDDTHHMMSSZ or YYYYMMDDTHHMMSS)
-        String cleanValue = rawValue.replaceAll(RegExp(r'[^\dTZ]'), '');
-        String format;
-        DateTime parsedDate;
-
-        if (cleanValue.endsWith('Z')) {
-          // Z means UTC
-          format = "yyyyMMdd'T'HHmmss'Z'";
-          // Parse UTC and convert to local time zone
-          parsedDate = DateFormat(format).parseUTC(cleanValue).toLocal();
-        } else if (cleanValue.contains('T')) {
-          // Non-UTC (Local Time based on TZID or implied context)
-          format = "yyyyMMdd'T'HHmmss";
-          parsedDate = DateFormat(format).parse(cleanValue);
-        } else {
-          // Fallback for unexpected format
-          return null;
-        }
-        return parsedDate;
       }
+
+      // Case 2 & 3: Date-Time event (Format: YYYYMMDDTHHMMSS[Z])
+      if (cleanValue.contains('T') && cleanValue.length >= 15) {
+        // 2. Convert ICS YYYYMMDDTHHMMSS into ISO 8601 YYYY-MM-DDTHH:MM:SS
+        String isoValue =
+            '${cleanValue.substring(0, 4)}-${cleanValue.substring(4, 6)}-${cleanValue.substring(6, 8)}'
+            'T${cleanValue.substring(9, 11)}:${cleanValue.substring(11, 13)}:${cleanValue.substring(13, 15)}';
+
+        // 3. Handle UTC ('Z') vs Local Time
+        if (cleanValue.endsWith('Z')) {
+          // UTC time: Append 'Z' and parse, then convert to local time zone
+          return DateTime.parse(isoValue + 'Z').toLocal();
+        } else {
+          // Local time (Non-UTC): Parse directly, treating it as the device's local time zone
+          return DateTime.parse(isoValue);
+        }
+      }
+
+      return null;
     } catch (e) {
       print('>>> ICS DEBUG: 🚨 Date parse error for line: $line. Error: $e');
       return null;
     }
   }
 
-  // Simplified ICS Parser (UPDATED)
+  // Simplified ICS Parser - Unchanged
   List<Programme> _parseIcsContent(String icsContent) {
     final List<Programme> events = [];
     final lines = icsContent.split('\n');
@@ -191,7 +260,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     DateTime? currentStart;
     DateTime? currentEnd;
     String? currentUid;
-    bool isDateOnly = false; // Flag to track if the event is all-day
+    bool isDateOnly = false;
 
     for (final line in lines) {
       final trimmedLine = line.trim();
@@ -218,17 +287,13 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
           DateTime? finalEnd = currentEnd;
 
           if (isDateOnly) {
-            // All-day event correction:
             if (finalEnd != null && finalEnd.isAfter(currentStart)) {
-              // DTEND is exclusive (day *after* the event ends). Subtract 1 day.
               finalEnd = finalEnd.subtract(const Duration(days: 1));
             } else if (finalEnd == null) {
-              // Single-day all-day event (DTEND omitted)
               finalEnd = currentStart;
             }
           }
 
-          // Final sanity check: If end is before start, set end to start (for single-day events)
           if (finalEnd != null && finalEnd.isBefore(currentStart)) {
             finalEnd = currentStart;
           }
@@ -253,10 +318,9 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🔄 FIREBASE STREAM
+  // 🔄 FIREBASE STREAM - Unchanged
   // ----------------------------------------------------------------------
   Stream<QuerySnapshot> _allProgrammesStream() {
-    // This stream only handles Firestore data
     return FirebaseFirestore.instance
         .collection('programmes')
         .where('visible', isEqualTo: true)
@@ -271,14 +335,13 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🛠️ HANDLER FOR STREAM DATA
+  // 🛠️ HANDLER FOR STREAM DATA - Unchanged logic, relies on throttled fetch
   // ----------------------------------------------------------------------
 
-  // This handles the data processing, merging, and calls setState/saves preferences.
   void _handleProgrammeData(List<Programme> firestoreProgrammes) async {
     if (!mounted) return;
 
-    // 1. Fetch Google Calendar Events
+    // 1. Fetch Google Calendar Events (Network, Throttle, or Cache)
     final googleProgrammes = await _fetchAndParseGoogleCalendarEvents();
 
     // 2. Merge and sort all programmes
@@ -286,20 +349,20 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     allProgrammes.sort((a, b) => a.start.compareTo(b.start));
 
     // 3. Build the map for the calendar markers
-    _buildProgrammeMap(allProgrammes);
+    _buildProgrammeMap(allProgrammes, shouldSetState: true);
 
     // 4. Update the combined list state
     if (!listEquals(_combinedProgrammes, allProgrammes)) {
       setState(() {
-        _combinedProgrammes = allProgrammes; // 👈 NEW
+        _combinedProgrammes = allProgrammes;
       });
     }
 
-    // 5. Save the updated map.
+    // 5. Save the updated map (cache for markers).
     _saveProgrammesMap(_programmesByDate);
   }
 
-  // New helper function to check list equality for Programmes
+  // Helper functions... (mapEquals, listEquals, etc. are retained as-is)
   bool listEquals(List<Programme> a, List<Programme> b) {
     if (a.length != b.length) return false;
     for (int i = 0; i < a.length; i++) {
@@ -311,30 +374,22 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     return true;
   }
 
-  // ----------------------------------------------------------------------
-  // 🛠️ MAP BUILDER & EQUALITY
-  // ----------------------------------------------------------------------
-
-  // Modified to take the combined list
-  void _buildProgrammeMap(List<Programme> allProgrammes) {
+  void _buildProgrammeMap(
+    List<Programme> allProgrammes, {
+    bool shouldSetState = true,
+  }) {
     final Map<DateTime, List<String>> grouped = {};
     for (final programme in allProgrammes) {
       final start = programme.start;
       final end = programme.end ?? start;
 
-      // Normalize start to the beginning of the day
       final startDay = DateTime(start.year, start.month, start.day);
-
-      // Determine the last day the programme is active (inclusive).
       final lastActiveDay = DateTime(end.year, end.month, end.day);
-
-      // Determine the exclusive end day for the loop
       final exclusiveEndDay = lastActiveDay.add(const Duration(days: 1));
 
-      DateTime current = startDay; // Start from the beginning of the start day
+      DateTime current = startDay;
 
       while (current.isBefore(exclusiveEndDay)) {
-        // Loop until the day *before* the exclusive end day
         final normalizedDate = DateTime(
           current.year,
           current.month,
@@ -345,10 +400,13 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
         current = current.add(const Duration(days: 1));
       }
     }
-    if (!mapEquals(grouped, _programmesByDate)) {
+
+    if (shouldSetState && !mapEquals(grouped, _programmesByDate)) {
       setState(() {
         _programmesByDate = grouped;
       });
+    } else if (!shouldSetState) {
+      _programmesByDate = grouped;
     }
   }
 
@@ -365,7 +423,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🖼️ WIDGET BUILDER
+  // 🖼️ WIDGET BUILDER AND OTHER UI METHODS - Unchanged
   // ----------------------------------------------------------------------
 
   @override
@@ -386,9 +444,10 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
       body: StreamBuilder<QuerySnapshot>(
         stream: _allProgrammesStream(),
         builder: (context, snapshot) {
-          // Loading and Error Handling (Uses local cache during waiting)
+          // Robust Loading Check: Wait only if NO cached data is available
           if (snapshot.connectionState == ConnectionState.waiting &&
-              _programmesByDate.isEmpty) {
+              _programmesByDate.isEmpty &&
+              _combinedProgrammes.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
 
@@ -405,27 +464,24 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
                 .map((doc) => Programme.fromFirestore(doc))
                 .toList();
 
-            // Call the state-modifying function to fetch/merge Google data
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _handleProgrammeData(firestoreProgrammes);
             });
           } else {
-            // Handle case where stream data is empty but we may have Google data/cache
-            if (_combinedProgrammes.isEmpty) {
+            if (snapshot.connectionState != ConnectionState.waiting) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _handleProgrammeData([]);
               });
             }
           }
 
-          // Build the UI using CustomScrollView and Slivers
           return CustomScrollView(
             slivers: [
-              // 🟢 MEDIUM SliverAppBar
+              // SliverAppBar.medium... (UI code)
               SliverAppBar.medium(
                 backgroundColor: AppColors.exblue,
                 foregroundColor: Colors.white,
-                title: const Text('school calender'),
+                title: const Text('School Calendar'),
                 centerTitle: true,
                 floating: true,
                 snap: true,
@@ -441,10 +497,8 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
                 ),
               ),
 
-              // 2. Calendar (Wrapped in SliverToBoxAdapter)
               SliverToBoxAdapter(child: _buildCalendar()),
 
-              // 3. Selected Date Header (Wrapped in SliverToBoxAdapter)
               SliverToBoxAdapter(
                 child: Column(
                   children: [
@@ -454,7 +508,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
                 ),
               ),
 
-              // 4. Programme List (Now a SliverList) - Uses the combined list from state
               _buildProgrammeListSliver(_combinedProgrammes),
             ],
           );
@@ -463,10 +516,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     );
   }
 
-  // ----------------------------------------------------------------------
-  // 📅 CALENDAR WIDGET
-  // ----------------------------------------------------------------------
-
+  // _buildCalendar() { ... }
   Widget _buildCalendar() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -512,7 +562,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
           weekendTextStyle: const TextStyle(color: Colors.redAccent),
         ),
         calendarBuilders: CalendarBuilders(
-          // Today Builder (Same as before)
           todayBuilder: (context, date, focusedDay) {
             final normalizedDate = DateTime(date.year, date.month, date.day);
             final hasProgrammes =
@@ -546,7 +595,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
             return null;
           },
 
-          // Marker Builder (Same as before)
           markerBuilder: (context, date, events) {
             final normalizedDate = DateTime(date.year, date.month, date.day);
             final programmes = _programmesByDate[normalizedDate] ?? [];
@@ -608,10 +656,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     );
   }
 
-  // ----------------------------------------------------------------------
-  // 💡 SELECTED DATE HEADER (No change required)
-  // ----------------------------------------------------------------------
-
+  // _buildSelectedDateHeader() { ... }
   Widget _buildSelectedDateHeader() {
     final selected = _selectedDay;
     final dateText = DateFormat('EEEE, d MMMM yyyy').format(selected);
@@ -628,26 +673,16 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     );
   }
 
-  // ----------------------------------------------------------------------
-  // 📝 PROGRAMME LIST (CORRECTED FILTER)
-  // ----------------------------------------------------------------------
-
+  // _buildProgrammeListSliver() { ... }
   Widget _buildProgrammeListSliver(List<Programme> allProgrammes) {
     final selected = _selectedDay;
-    // Start of the selected day (e.g., 2025-10-27 00:00:00.000)
     final startOfDay = DateTime(selected.year, selected.month, selected.day);
-    // End of the selected day (exclusive) (e.g., 2025-10-28 00:00:00.000)
     final endOfDayExclusive = startOfDay.add(const Duration(days: 1));
 
-    // Filter programmes that overlap with the selected day
     final programmesForDay = allProgrammes.where((p) {
       final programmeEndInclusive = p.end ?? p.start;
 
-      // An event overlaps with the selected day if:
-      // 1. The event starts BEFORE the exclusive end of the selected day.
       final startsBeforeEndOfSelectedDay = p.start.isBefore(endOfDayExclusive);
-
-      // 2. The event ends ON OR AFTER the start of the selected day.
       final endsAfterStartOfSelectedDay =
           programmeEndInclusive.isAfter(startOfDay) ||
           isSameDay(programmeEndInclusive, startOfDay);
@@ -656,7 +691,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     }).toList();
 
     if (programmesForDay.isEmpty) {
-      // Return a SliverToBoxAdapter for the empty state message
       return SliverToBoxAdapter(
         child: Center(
           child: Padding(
@@ -685,7 +719,6 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
 
     programmesForDay.sort((a, b) => a.start.compareTo(b.start));
 
-    // Return a SliverList for the programme cards
     return SliverList.builder(
       itemCount: programmesForDay.length,
       itemBuilder: (context, index) {

@@ -1,3 +1,5 @@
+// File: FirestoreService.dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,29 +13,57 @@ class FirestoreService {
   final _db = FirebaseFirestore.instance;
 
   // -------------------------------
-  // Caches
+  // Caches & Subscriptions (State)
   // -------------------------------
   Devotion? _latestDevotionCache;
-  StreamSubscription<Devotion?>? _devotionSubscription;
-
   StaffOnDuty? _cachedStaff;
+
+  StreamSubscription<Devotion?>? _devotionSubscription;
   StreamSubscription<StaffOnDuty?>? _staffSubscription;
+
+  // ⚡️ FIX 1: Use synchronous broadcast stream for minimal delay and immediate data delivery
+  final StreamController<List<Notice>> _noticesController =
+      StreamController<List<Notice>>.broadcast(sync: true);
+  StreamSubscription<List<Notice>>? _noticesSubscription;
+  List<Notice>? _cachedNotices;
+  static const String _noticesCacheKey = 'cachedNotices';
+  static const int _maxNoticesToKeep = 100;
 
   static const String _staffCacheKey = 'latestStaffOnDuty';
   static const String _devotionCacheKey = 'latestDevotion';
 
+  // ⚡️ FIX 2 for Red Screen: Guaranteed initialization upon class instantiation
+  late final Future<void> _initializationComplete = _setupListenersAndCaches();
+
   // -------------------------------
-  // Constructor
+  // Constructor & Initialization
   // -------------------------------
-  FirestoreService() {
-    _initializeCaches(); // Load local caches on startup
+
+  FirestoreService(); // Simple, empty constructor.
+
+  // Public accessor for the initialization Future
+  Future<void> get initializationComplete => _initializationComplete;
+
+  // Dedicated setup method that runs once and awaits caching
+  Future<void> _setupListenersAndCaches() async {
+    await _initializeCaches();
+
     _startDevotionListener();
     _startStaffListener();
+    _startNoticesListener();
   }
 
+  // Load all local data concurrently on startup
   Future<void> _initializeCaches() async {
-    _latestDevotionCache = await _loadDevotionLocally();
-    _cachedStaff = await _loadStaffLocally();
+    final results = await Future.wait([
+      _loadDevotionLocally(),
+      _loadStaffLocally(),
+      _loadNoticesLocally(),
+    ]);
+
+    _latestDevotionCache = results[0] as Devotion?;
+    _cachedStaff = results[1] as StaffOnDuty?;
+    _cachedNotices = results[2] as List<Notice>?;
   }
 
   // -------------------------------
@@ -45,17 +75,14 @@ class FirestoreService {
   }
 
   Stream<Devotion?> getLatestDevotionWithFallback() async* {
-    // 1️⃣ Yield memory cache immediately
     if (_latestDevotionCache != null) yield _latestDevotionCache;
 
-    // 2️⃣ Yield local SharedPreferences data
     final localDevotion = await _loadDevotionLocally();
     if (localDevotion != null && localDevotion != _latestDevotionCache) {
       _latestDevotionCache = localDevotion;
       yield localDevotion;
     }
 
-    // 3️⃣ Yield live updates from Firestore
     yield* _db
         .collection('devotions')
         .orderBy('date', descending: true)
@@ -147,17 +174,14 @@ class FirestoreService {
   // -------------------------------
 
   Stream<StaffOnDuty?> getStaffOnDutyWithCache() async* {
-    // 1️⃣ Yield memory cache first
     if (_cachedStaff != null) yield _cachedStaff;
 
-    // 2️⃣ Load local data instantly if available
     final localStaff = await _loadStaffLocally();
     if (localStaff != null && localStaff != _cachedStaff) {
       _cachedStaff = localStaff;
       yield localStaff;
     }
 
-    // 3️⃣ Yield Firestore live updates
     yield* _db
         .collection('staff')
         .doc('staff_info')
@@ -215,60 +239,82 @@ class FirestoreService {
     }
   }
 
-  // ------------------------
-  // CLEANUP
-  // ------------------------
-  void dispose() {
-    _staffSubscription?.cancel();
-    _devotionSubscription?.cancel();
+  // -------------------------------
+  // NOTICES IMPLEMENTATION (Final)
+  // -------------------------------
+
+  Future<List<Notice>?> _loadNoticesLocally() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedJson = prefs.getString(_noticesCacheKey);
+    if (cachedJson == null) return null;
+    try {
+      final List decoded = jsonDecode(cachedJson);
+      return decoded.map((e) => Notice.fromJson(e)).toList();
+    } catch (e) {
+      print('Error decoding cached notices: $e');
+      return null;
+    }
   }
 
-  // =====================
-  // Notices with Caching
-  // =====================
+  void _startNoticesListener() {
+    if (_noticesSubscription != null) return;
 
-  // FirestoreService.dart
+    // The logic to push the initial cache is now handled by getNoticesWithCache().
 
-  Stream<List<Notice>> getNoticesWithCache() async* {
-    const cacheKey = 'cachedNotices';
-    final prefs = await SharedPreferences.getInstance();
-
-    // Define the maximum number of recent notices to fetch and cache.
-    // This value determines the length of the list the user will see.
-    const int maxNoticesToKeep =
-        100; // You can adjust this number (e.g., 50, 200)
-
-    // Step 1: Load cached notices first (for offline view)
-    final cachedJson = prefs.getString(cacheKey);
-    if (cachedJson != null) {
-      try {
-        final List decoded = jsonDecode(cachedJson);
-        final cached = decoded.map((e) => Notice.fromJson(e)).toList();
-        if (cached.isNotEmpty) yield cached;
-      } catch (e) {
-        // Handle potential decoding errors gracefully
-        print('Error decoding cached notices: $e');
-      }
-    }
-
-    // Step 2: Firestore live updates (LIMITED QUERY)
-    yield* _db
+    final stream = _db
         .collection('notices')
         .orderBy('date', descending: true)
-        .limit(maxNoticesToKeep) // <--- LIMIT APPLIED HERE
+        .limit(_maxNoticesToKeep)
         .snapshots()
         .map((snap) {
           final notices = snap.docs
               .map((d) => Notice.fromFirestore(d))
               .toList();
-
-          // Save ONLY the limited list to SharedPreferences,
-          // effectively purging older notices from the local cache.
-          prefs.setString(
-            cacheKey,
-            jsonEncode(notices.map((n) => n.toJson()).toList()),
-          );
           return notices;
         });
+
+    _noticesSubscription = stream.listen(
+      (notices) async {
+        // 1. Update memory cache
+        _cachedNotices = notices;
+        // 2. Push live updates to controller
+        _noticesController.add(notices);
+
+        // 3. Save new data to SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        prefs.setString(
+          _noticesCacheKey,
+          jsonEncode(notices.map((n) => n.toJson()).toList()),
+        );
+      },
+      onError: (e) {
+        print('Firestore Notices Stream Error: $e');
+        if (_cachedNotices != null) {
+          _noticesController.add(_cachedNotices!);
+        }
+      },
+    );
+  }
+
+  // ⚡️ FIX 3: Yield current cache immediately, then yield the long-lived stream.
+  Stream<List<Notice>> getNoticesWithCache() async* {
+    // 1. Yield the current memory cache immediately (instant UI population)
+    if (_cachedNotices != null) {
+      yield _cachedNotices!;
+    }
+
+    // 2. Yield the long-lived stream for all future updates
+    yield* _noticesController.stream;
+  }
+
+  // ------------------------
+  // CLEANUP (CRITICAL FOR BATTERY LIFE)
+  // ------------------------
+  @override
+  void dispose() {
+    _staffSubscription?.cancel();
+    _devotionSubscription?.cancel();
+    _noticesSubscription?.cancel();
+    _noticesController.close();
   }
 }

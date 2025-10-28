@@ -44,27 +44,6 @@ class _AboutChengeloState extends State<AboutChengelo> {
     }
   }
 
-  // Function to launch the calendar feed
-  Future<void> _launchCalendarUrl() async {
-    final Uri url = Uri.parse(SCHOOL_CALENDAR_URL);
-
-    try {
-      // 1. Attempt to open in a native calendar app (externalApplication)
-      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-        // 2. If native app fails, fall back to opening in a web browser
-        if (!await launchUrl(url, mode: LaunchMode.platformDefault)) {
-          // 3. If both fail, show error
-          _showLaunchError(
-            SCHOOL_CALENDAR_URL,
-            'Failed to launch in both calendar app and browser.',
-          );
-        }
-      }
-    } catch (e) {
-      _showLaunchError(SCHOOL_CALENDAR_URL, 'An unexpected error occurred: $e');
-    }
-  }
-
   // ==========================================================
   // 3. Error Reporting Method (using SnackBar)
   // ==========================================================
@@ -160,14 +139,6 @@ class _AboutChengeloState extends State<AboutChengelo> {
                       context,
                       'Visit Our Website',
                       _launchWebsiteUrl, // <-- Linked to the website function
-                    ),
-
-                    const SizedBox(height: 10), // Spacing between links
-                    // Calendar Link
-                    _buildLinkRow(
-                      context,
-                      'School Calendar',
-                      _launchCalendarUrl, // <-- Linked to the calendar function
                     ),
                   ],
                 ),

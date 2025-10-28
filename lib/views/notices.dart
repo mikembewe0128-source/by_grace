@@ -1,3 +1,5 @@
+// File: NoticesPage.dart (The most stable version)
+
 import 'package:flutter/material.dart';
 import 'package:grace_by/Api/firestore_service.dart';
 import 'package:grace_by/data/app_colors.dart';
@@ -8,6 +10,28 @@ import 'package:provider/provider.dart';
 
 class NoticesPage extends StatelessWidget {
   const NoticesPage({super.key});
+
+  // Helper widget to display shimmer placeholders
+  Widget _buildShimmerLoading() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 20.0),
+        child: Column(
+          children: List.generate(
+            3,
+            (index) => Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: const ShimmerPlaceholder(
+                height: 110,
+                width: double.infinity,
+                borderRadius: 12,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,77 +73,71 @@ class NoticesPage extends StatelessWidget {
             ),
           ),
 
-          // --- 3. Stream Builder for Notices ---
-          StreamBuilder<List<Notice>>(
-            stream: service.getNoticesWithCache(),
+          // ⚠️ THE FINAL GUARANTEE: Wait for the service's async initialization to finish
+          FutureBuilder(
+            future: service.initializationComplete,
             builder: (context, snapshot) {
-              // --- Loading State with Shimmer ---
+              // --- Phase 1: Service is initializing (Loading cache) ---
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14.0,
-                      vertical: 20.0,
-                    ),
-                    child: Column(
-                      children: List.generate(
-                        3,
-                        (index) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12.0),
-                          child: const ShimmerPlaceholder(
-                            height: 110,
-                            width: double.infinity,
-                            borderRadius: 12,
+                return _buildShimmerLoading();
+              }
+
+              // --- Phase 2: Initialization is complete, now access the stream ---
+              // The stream can now safely be accessed, as _cachedNotices is ready.
+              return StreamBuilder<List<Notice>>(
+                stream: service.getNoticesWithCache(),
+                builder: (context, snapshot) {
+                  // --- Stream-Based Loading (only for subsequent live updates) ---
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    // This will only show if the stream is active but hasn't yielded data,
+                    // which is unlikely since getNoticesWithCache() yields the cache immediately.
+                    return _buildShimmerLoading();
+                  }
+
+                  // --- Error State ---
+                  if (snapshot.hasError) {
+                    return SliverToBoxAdapter(
+                      child: Center(
+                        child: Text('Error loading notices: ${snapshot.error}'),
+                      ),
+                    );
+                  }
+
+                  final notices = snapshot.data ?? [];
+
+                  // --- Empty State ---
+                  if (notices.isEmpty) {
+                    return const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 40.0),
+                        child: Center(child: Text('No notices available.')),
+                      ),
+                    );
+                  }
+
+                  // --- Success/Data State ---
+                  return SliverList(
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final notice = notices[index];
+                      final isLast = index == notices.length - 1;
+
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          top: index == 0 ? 10 : 0,
+                          bottom: isLast ? 20 : 0,
+                        ),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 600),
+                          switchInCurve: Curves.easeInOut,
+                          child: NoticeCard(
+                            key: ValueKey(notice.id),
+                            notice: notice,
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              // --- Error State ---
-              if (snapshot.hasError) {
-                return SliverToBoxAdapter(
-                  child: Center(
-                    child: Text('Error loading notices: ${snapshot.error}'),
-                  ),
-                );
-              }
-
-              final notices = snapshot.data ?? [];
-
-              // --- Empty State ---
-              if (notices.isEmpty) {
-                return const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 40.0),
-                    child: Center(child: Text('No notices available.')),
-                  ),
-                );
-              }
-
-              // --- Success/Data State (With Fade-in Animation) ---
-              return SliverList(
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  final notice = notices[index];
-                  final isLast = index == notices.length - 1;
-
-                  return Padding(
-                    padding: EdgeInsets.only(
-                      top: index == 0 ? 10 : 0,
-                      bottom: isLast ? 20 : 0,
-                    ),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 600),
-                      switchInCurve: Curves.easeInOut,
-                      child: NoticeCard(
-                        key: ValueKey(notice.id),
-                        notice: notice,
-                      ),
-                    ),
+                      );
+                    }, childCount: notices.length),
                   );
-                }, childCount: notices.length),
+                },
               );
             },
           ),
