@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:grace_by/Api/firestore_service.dart';
 import 'package:grace_by/data/app_colors.dart';
-import 'package:grace_by/models/announcements.dart';
 import 'package:grace_by/models/devtions.dart';
 import 'package:grace_by/models/staff_on_duty.dart';
+import 'package:grace_by/widgets/announcement_stream_list.dart';
 import 'package:grace_by/widgets/quick_actions_card.dart';
 import 'package:grace_by/views/home/devotion_card.dart';
 import 'package:grace_by/views/home/staff_on_duty.dart';
 import 'package:grace_by/widgets/shimmer_placeholder.dart';
-import 'package:intl/intl.dart';
+
 import 'package:provider/provider.dart';
 
 class HomePage extends StatefulWidget {
@@ -89,7 +89,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 🔄 Devotion Stream
+          // 🔄 Devotion Stream (Polished Animation)
           StreamBuilder<Devotion?>(
             stream: firestoreService.getLatestDevotionWithFallback(),
             builder: (context, snapshot) {
@@ -132,7 +132,7 @@ class _HomePageState extends State<HomePage> {
                 );
               }
 
-              // ✨ Animate DevotionCard on scroll
+              // ✨ ANIMATION: Snappy slide down
               return SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2.0),
@@ -143,7 +143,11 @@ class _HomePageState extends State<HomePage> {
                           )
                           .animate()
                           .fadeIn(duration: 600.ms)
-                          .slideY(begin: 0.2, end: 0, curve: Curves.easeOut)
+                          .slideY(
+                            begin: 0.2,
+                            end: 0,
+                            curve: Curves.easeOutCubic,
+                          )
                           .then()
                           .animate(
                             onPlay: (controller) =>
@@ -165,7 +169,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 🔄 Staff Stream
+          // 🔄 Staff Stream (Clean 2D Animation)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8.0),
@@ -190,14 +194,18 @@ class _HomePageState extends State<HomePage> {
                   }
 
                   final staff = snapshot.data ?? defaultStaff;
-                  // ✨ Animate StaffOnDutyCard on scroll
+                  // ✨ ANIMATION: Simple, flat slide/fade
                   return StaffOnDutyCard(
                         key: ValueKey(staff.hashCode),
                         staff: staff,
                       )
                       .animate()
                       .fadeIn(duration: 600.ms)
-                      .slideY(begin: 0.15, end: 0, curve: Curves.easeOut)
+                      .slideY(
+                        begin: 0.15,
+                        end: 0,
+                        curve: Curves.easeOutCubic, // Snappy stop
+                      )
                       .then()
                       .animate(
                         onPlay: (controller) => controller.forward(from: 0.0),
@@ -218,213 +226,9 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 🔄 Announcements Stream
-          SliverToBoxAdapter(
-            child: StreamBuilder<List<Announcement>>(
-              stream: firestoreService.getRecentAnnouncements(5),
-              builder: (context, snapshot) {
-                final screenWidth = MediaQuery.of(context).size.width;
-                final cardHeight = screenWidth * 0.50;
-                final cardWidth = screenWidth * 0.70;
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return SizedBox(
-                    height: cardHeight,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: 3,
-                      itemBuilder: (context, index) => Container(
-                        width: cardWidth,
-                        margin: EdgeInsets.only(
-                          left: index == 0 ? 12 : 6,
-                          right: 6,
-                        ),
-                        child: const ShimmerPlaceholder(
-                          height: double.infinity,
-                          width: double.infinity,
-                          borderRadius: 10,
-                        ),
-                      ),
-                    ),
-                  );
-                }
-
-                if (snapshot.hasError ||
-                    snapshot.data == null ||
-                    snapshot.data!.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-
-                final announcements = snapshot.data!;
-                String formatTimestamp(DateTime dateTime) {
-                  return DateFormat('MMM dd, yyyy h:mm a').format(dateTime);
-                }
-
-                return SizedBox(
-                  height: cardHeight,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: announcements.length,
-                    itemBuilder: (context, index) {
-                      final announcement = announcements[index];
-
-                      final card = Container(
-                        width: cardWidth,
-                        margin: EdgeInsets.only(
-                          left: index == 0 ? 12 : 6,
-                          right: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.exblue,
-                          borderRadius: BorderRadius.circular(10),
-                          boxShadow: const [
-                            BoxShadow(
-                              blurRadius: 8,
-                              color: Colors.black26,
-                              offset: Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Stack(
-                          children: [
-                            // Background
-                            if (announcement.imageUrl.isNotEmpty)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: CachedNetworkImage(
-                                  imageUrl: announcement.imageUrl,
-                                  width: cardWidth,
-                                  height: cardHeight,
-                                  fit: BoxFit.cover,
-                                  fadeInDuration: const Duration(
-                                    milliseconds: 500,
-                                  ),
-                                  fadeOutDuration: const Duration(
-                                    milliseconds: 200,
-                                  ),
-                                  errorWidget: (context, url, error) =>
-                                      Image.asset(
-                                        'assets/images/ethos.jpg',
-                                        fit: BoxFit.cover,
-                                      ),
-                                  placeholder: (context, url) =>
-                                      const ShimmerPlaceholder(
-                                        height: double.infinity,
-                                        width: double.infinity,
-                                        borderRadius: 10,
-                                      ),
-                                ),
-                              )
-                            else
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: AppColors.exblue,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-
-                            // Overlay
-                            Container(
-                              decoration: BoxDecoration(
-                                color: announcement.imageUrl.isNotEmpty
-                                    ? Colors.black.withOpacity(0.4)
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-
-                            // Centered content
-                            Align(
-                              alignment: Alignment.center,
-                              child: Padding(
-                                padding: const EdgeInsets.all(12.0),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      announcement.title,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    if (announcement.content.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          top: 8.0,
-                                        ),
-                                        child: Text(
-                                          announcement.content,
-                                          style: const TextStyle(
-                                            color: AppColors.exbackground,
-                                            fontSize: 12,
-                                          ),
-                                          textAlign: TextAlign.center,
-                                          maxLines: 4,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-
-                            // Timestamp
-                            Positioned(
-                              top: 12.0,
-                              left: 12.0,
-                              child: Text(
-                                formatTimestamp(announcement.date),
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-
-                            // Sender
-                            if (announcement.sender != null &&
-                                announcement.sender!.isNotEmpty)
-                              Positioned(
-                                bottom: 12.0,
-                                left: 12.0,
-                                child: Text(
-                                  'From: ${announcement.sender}',
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      );
-
-                      // ✨ Animate each announcement card
-                      return card
-                          .animate()
-                          .fadeIn(duration: 400.ms, delay: (100 * index).ms)
-                          .slideX(
-                            begin: 0.2 * (index % 2 == 0 ? 1 : -1),
-                            end: 0,
-                            curve: Curves.easeOut,
-                          )
-                          .then()
-                          .animate(
-                            onPlay: (controller) =>
-                                controller.forward(from: 0.0),
-                          );
-                    },
-                  ),
-                );
-              },
-            ),
+          // 🔄 Announcements Stream (Now a single, dedicated widget!)
+          const SliverToBoxAdapter(
+            child: AnnouncementStreamList(), // <<< CLEANER CODE
           ),
 
           // 5️⃣ Quick Actions
@@ -446,16 +250,16 @@ class _HomePageState extends State<HomePage> {
                       ),
                       child: QuickActionsCard(),
                     )
+                    // ✨ ANIMATION: Bounce scale
                     .animate()
-                    .fadeIn(duration: 600.ms, delay: 200.ms)
                     .scale(
+                      duration: 600.ms,
+                      delay: 200.ms,
                       begin: const Offset(0.95, 0.95),
                       end: const Offset(1.0, 1.0),
+                      curve: Curves.easeOutBack,
                     )
-                    .then()
-                    .animate(
-                      onPlay: (controller) => controller.forward(from: 0.0),
-                    ),
+                    .fadeIn(duration: 400.ms),
           ),
 
           // 6️⃣ Footer

@@ -1,5 +1,6 @@
 // File: school_programmes_page.dart
 
+import 'dart:async'; // Added for StreamSubscription type hint, though not strictly required
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -58,11 +59,22 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     _initializePreferencesAndCache();
   }
 
+  @override
+  void dispose() {
+    // 🧹 Best practice: Ensure any managed resources are cleaned up.
+    // While SharedPreferences doesn't strictly need disposing,
+    // it's good practice for custom resource management.
+    super.dispose();
+  }
+
   // ----------------------------------------------------------------------
   // 💾 PREFERENCES & CACHE SETUP
   // ----------------------------------------------------------------------
   Future<void> _initializePreferencesAndCache() async {
     _prefs = await SharedPreferences.getInstance();
+
+    // CRITICAL FIX 1: Check mounted after async/await call
+    if (!mounted) return;
 
     final savedDayString = _prefs!.getString(_kSelectedDayKey);
     if (savedDayString != null) {
@@ -88,23 +100,24 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
       _buildProgrammeMap(_combinedProgrammes, shouldSetState: false);
     }
 
-    setState(() {});
+    // CRITICAL FIX 1: Check mounted before final setState
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _saveSelectedDay(DateTime day) async {
-    if (mounted) {
-      await _prefs?.setString(_kSelectedDayKey, day.toIso8601String());
-    }
+    // The check here is already good, but not strictly needed for non-UI ops
+    await _prefs?.setString(_kSelectedDayKey, day.toIso8601String());
   }
 
   Future<void> _saveProgrammesMap(Map<DateTime, List<String>> map) async {
-    if (mounted) {
-      final encodedMap = map.map(
-        (key, value) => MapEntry(key.toIso8601String(), value),
-      );
-      final jsonString = json.encode(encodedMap);
-      await _prefs?.setString(_kProgrammesMapKey, jsonString);
-    }
+    // The check here is already good, but not strictly needed for non-UI ops
+    final encodedMap = map.map(
+      (key, value) => MapEntry(key.toIso8601String(), value),
+    );
+    final jsonString = json.encode(encodedMap);
+    await _prefs?.setString(_kProgrammesMapKey, jsonString);
   }
 
   Map<DateTime, List<String>> _loadProgrammesMap() {
@@ -125,16 +138,15 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
 
   // Save the full list of Google Programmes
   Future<void> _saveGoogleProgrammesCache(List<Programme> programmes) async {
-    if (mounted) {
-      try {
-        final List<Map<String, dynamic>> jsonList = programmes
-            .map((p) => p.toJson())
-            .toList();
-        final jsonString = json.encode(jsonList);
-        await _prefs?.setString(_kGoogleProgrammesCacheKey, jsonString);
-      } catch (e) {
-        print('>>> CACHE: Error saving Google programmes to cache: $e');
-      }
+    // The check here is already good, but not strictly needed for non-UI ops
+    try {
+      final List<Map<String, dynamic>> jsonList = programmes
+          .map((p) => p.toJson())
+          .toList();
+      final jsonString = json.encode(jsonList);
+      await _prefs?.setString(_kGoogleProgrammesCacheKey, jsonString);
+    } catch (e) {
+      print('>>> CACHE: Error saving Google programmes to cache: $e');
     }
   }
 
@@ -181,8 +193,13 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
 
         // 💾 SUCCESS: SAVE TO CACHE AND UPDATE TIMESTAMP
         await _saveGoogleProgrammesCache(liveEvents);
-        _lastGoogleFetchTime =
-            DateTime.now(); // Record the successful fetch time
+
+        // CRITICAL FIX 2: Only update fetch time if mounted (though minor,
+        // it avoids potential late assignments after dispose)
+        if (mounted) {
+          _lastGoogleFetchTime =
+              DateTime.now(); // Record the successful fetch time
+        }
 
         return liveEvents;
       } else {
@@ -212,7 +229,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🛠️ CORRECTED: ICS DATE PARSER (Fixes FormatException)
+  // 🛠️ CORRECTED: ICS DATE PARSER (Fixes FormatException) - Unchanged
   // ----------------------------------------------------------------------
   DateTime? _parseIcsDateTime(String line) {
     try {
@@ -335,14 +352,18 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🛠️ HANDLER FOR STREAM DATA - Unchanged logic, relies on throttled fetch
+  // 🛠️ HANDLER FOR STREAM DATA - Now with critical mounted check before setState
   // ----------------------------------------------------------------------
 
   void _handleProgrammeData(List<Programme> firestoreProgrammes) async {
+    // Already good: Check mounted immediately to exit if the widget is gone
     if (!mounted) return;
 
     // 1. Fetch Google Calendar Events (Network, Throttle, or Cache)
     final googleProgrammes = await _fetchAndParseGoogleCalendarEvents();
+
+    // CRITICAL FIX 3: Check mounted again after the async network/cache call
+    if (!mounted) return;
 
     // 2. Merge and sort all programmes
     final allProgrammes = [...firestoreProgrammes, ...googleProgrammes];
@@ -353,6 +374,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
 
     // 4. Update the combined list state
     if (!listEquals(_combinedProgrammes, allProgrammes)) {
+      // CRITICAL FIX 3: setState call is now protected by 'if (!mounted) return;' above
       setState(() {
         _combinedProgrammes = allProgrammes;
       });
@@ -402,9 +424,12 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
     }
 
     if (shouldSetState && !mapEquals(grouped, _programmesByDate)) {
-      setState(() {
-        _programmesByDate = grouped;
-      });
+      // CRITICAL FIX: Ensure setState is called only if mounted
+      if (mounted) {
+        setState(() {
+          _programmesByDate = grouped;
+        });
+      }
     } else if (!shouldSetState) {
       _programmesByDate = grouped;
     }
@@ -528,6 +553,7 @@ class _SchoolProgrammesPageState extends State<SchoolProgrammesPage> {
         calendarFormat: _calendarFormat,
         onDaySelected: (selected, focused) {
           if (!isSameDay(_selectedDay, selected)) {
+            // This setState is synchronous, so it's safe
             setState(() {
               _selectedDay = selected;
               _focusedDay = focused;
