@@ -8,10 +8,11 @@ class Event {
   final String imageUrl;
   final String? outcome;
   final List<String> outcomeImages;
-  final DateTime? startTime; // 🕒 new
-  final DateTime? endTime; // 🕓 new
-  final String? email; // 📧 new
-  final String? contact; // ☎️ new
+  final DateTime? startTime; // 🕒
+  final DateTime? endTime; // 🕓
+  final String? email; // 📧
+  final String? contact; // ☎️
+  final String? location; // 📍 new
 
   Event({
     required this.id,
@@ -25,12 +26,12 @@ class Event {
     this.endTime,
     this.email,
     this.contact,
+    this.location,
   });
 
   factory Event.fromMap(Map<String, dynamic> data, String documentId) {
     List<String> images = [];
 
-    // ✅ Handle both correct list and incorrectly formatted string
     if (data['outcomeImages'] != null) {
       if (data['outcomeImages'] is String) {
         final raw = data['outcomeImages'] as String;
@@ -64,6 +65,7 @@ class Event {
           : null,
       email: data['email'],
       contact: data['contact'],
+      location: data['location'], // ✅ new
     );
   }
 
@@ -79,6 +81,7 @@ class Event {
       'endTime': endTime,
       'email': email,
       'contact': contact,
+      'location': location, // ✅ new
     };
   }
 }
