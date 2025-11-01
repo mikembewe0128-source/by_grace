@@ -7,7 +7,11 @@ class Event {
   final DateTime date;
   final String imageUrl;
   final String? outcome;
-  final List<String> outcomeImages; // Non-nullable list
+  final List<String> outcomeImages;
+  final DateTime? startTime; // 🕒 new
+  final DateTime? endTime; // 🕓 new
+  final String? email; // 📧 new
+  final String? contact; // ☎️ new
 
   Event({
     required this.id,
@@ -17,6 +21,10 @@ class Event {
     required this.imageUrl,
     this.outcome,
     required this.outcomeImages,
+    this.startTime,
+    this.endTime,
+    this.email,
+    this.contact,
   });
 
   factory Event.fromMap(Map<String, dynamic> data, String documentId) {
@@ -25,7 +33,6 @@ class Event {
     // ✅ Handle both correct list and incorrectly formatted string
     if (data['outcomeImages'] != null) {
       if (data['outcomeImages'] is String) {
-        // Convert string "[url1, url2]" to List<String>
         final raw = data['outcomeImages'] as String;
         images = raw
             .replaceAll('[', '')
@@ -35,7 +42,6 @@ class Event {
             .where((e) => e.isNotEmpty)
             .toList();
       } else if (data['outcomeImages'] is List) {
-        // Proper list from Firestore
         images = List<String>.from(data['outcomeImages']);
       }
     }
@@ -44,10 +50,20 @@ class Event {
       id: documentId,
       title: data['title'] ?? '',
       description: data['description'] ?? '',
-      date: (data['date'] as Timestamp).toDate(),
+      date: data['date'] != null && data['date'] is Timestamp
+          ? (data['date'] as Timestamp).toDate()
+          : DateTime.now(),
       imageUrl: data['imageUrl'] ?? '',
       outcome: data['outcome'],
       outcomeImages: images,
+      startTime: data['startTime'] != null && data['startTime'] is Timestamp
+          ? (data['startTime'] as Timestamp).toDate()
+          : null,
+      endTime: data['endTime'] != null && data['endTime'] is Timestamp
+          ? (data['endTime'] as Timestamp).toDate()
+          : null,
+      email: data['email'],
+      contact: data['contact'],
     );
   }
 
@@ -59,6 +75,10 @@ class Event {
       'imageUrl': imageUrl,
       'outcome': outcome,
       'outcomeImages': outcomeImages,
+      'startTime': startTime,
+      'endTime': endTime,
+      'email': email,
+      'contact': contact,
     };
   }
 }
