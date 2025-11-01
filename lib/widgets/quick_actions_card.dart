@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:grace_by/views/views/pickup_dropoff.dart';
+import 'package:grace_by/views/views/requst_details_page.dart';
 import 'package:grace_by/widgets/quick_action_row.dart';
 import 'package:grace_by/views/about_chengelo.dart';
 import 'package:grace_by/views/events.dart';
 import 'package:grace_by/views/notices.dart';
 import 'package:grace_by/views/school_programme_page.dart';
-import 'package:grace_by/views/weekend.dart';
 
 class QuickActionsCard extends StatelessWidget {
   const QuickActionsCard({super.key});
@@ -16,7 +17,6 @@ class QuickActionsCard extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 800),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(18),
@@ -38,13 +38,13 @@ class QuickActionsCard extends StatelessWidget {
                 destination: NoticesPage(),
               ),
               QuickActionRow(
-                iconAsset: 'assets/weekend.png',
-                label: 'Weekend Programme',
-                destination: Weekend(),
+                iconAsset: 'assets/family.png',
+                label: 'Pickup & Dropoff',
+                destination: PickupDropoff(),
               ),
               QuickActionRow(
                 iconAsset: 'assets/school.png',
-                label: 'school Calendar',
+                label: 'School Calendar',
                 destination: SchoolProgrammesPage(),
               ),
               QuickActionRow(
