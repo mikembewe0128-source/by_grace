@@ -1,7 +1,8 @@
-import 'package:chengelo/utilities/models/events.dart';
-import 'package:chengelo/utilities/widgets/shimmer_placeholder.dart';
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:grace_by/models/events.dart';
+import 'package:grace_by/widgets/shimmer_placeholder.dart';
 import 'package:intl/intl.dart';
 
 class EventCard extends StatefulWidget {
